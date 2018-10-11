@@ -1,0 +1,163 @@
+Parameters:
+  InstanceType:
+    Type: String
+    AllowedValues:
+    - t2.micro
+    - m4.xlarge
+    - c4.xlarge
+  AvailabilityZone:
+    Description: This is to select the right AZ
+    Type: AWS::EC2::AvailabilityZone::Name
+  AvailabilityZone2:
+    Description: This is to use the other AvailabilityZone
+    Type: AWS::EC2::AvailabilityZone::Name
+
+
+Resources:
+  GboatLB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: GboatLB
+      Subnets:
+       - !Ref PublicSubnet1
+       - !Ref PublicSubnet2
+      SecurityGroups:
+       - Ref: MySecurityGroup
+  MySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: This is for the Load balancer
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          CidrIp: 0.0.0.0/0
+          FromPort: 80
+          ToPort: 80
+  LaunchCfgSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: This is for the Load balancer
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          CidrIp: 0.0.0.0/0
+          FromPort: 22
+          ToPort: 22
+  MyTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 15
+      Protocol: HTTP
+      Port: 80
+      TargetType: instance
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      VpcId: !Ref MyVPC
+  MyLBListner:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Protocol: HTTP
+      Port: 80
+      LoadBalancerArn: !Ref GboatLB
+      DefaultActions:
+        - TargetGroupArn: !Ref MyTargetGroup
+          Type: forward
+  BoatengASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: BoatengASG
+      DesiredCapacity: 2
+      HealthCheckGracePeriod: 45
+      HealthCheckType: ELB
+      LaunchConfigurationName:
+        Ref: GboatLaunchCFG
+      MaxSize: 4
+      MinSize: 2
+      TargetGroupARNs:
+        - !Ref MyTargetGroup
+      VPCZoneIdentifier:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+
+
+  GboatLaunchCFG:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: ami-0ff8a91507f77f867
+      InstanceType: !Ref InstanceType
+      SecurityGroups:
+        - !Ref LaunchCfgSecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+         #!/bin/bash
+         yum install -y httpd
+         systemctl enable httpd
+         systemctl start httpd
+  MyVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+
+  MyIGW:
+    Type: AWS::EC2::InternetGateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref MyVPC
+      InternetGatewayId: !Ref MyIGW
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone
+      CidrBlock: 10.0.1.0/24
+      VpcId: !Ref MyVPC
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone2
+      CidrBlock: 10.0.2.0/24
+      VpcId: !Ref MyVPC
+
+  PrivSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone
+      CidrBlock: 10.0.3.0/24
+      VpcId: !Ref MyVPC
+
+  PrivSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone
+      CidrBlock: 10.0.4.0/24
+      VpcId: !Ref MyVPC
+
+  PublicRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+
+  PubRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref MyIGW
+      RouteTableId: !Ref PublicRT
+
+  SubnetAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRT
+      SubnetId: !Ref PublicSubnet1
+
+  SubnetAssociation:
+   Type: AWS::EC2::SubnetRouteTableAssociation
+   Properties:
+     RouteTableId: !Ref PublicRT
+     SubnetId: !Ref PublicSubnet2
+
